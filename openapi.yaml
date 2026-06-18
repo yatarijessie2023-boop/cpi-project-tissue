@@ -1,0 +1,137 @@
+openapi: 3.0.0
+info:
+  title: CPI Project API
+  description: 物價自造者 (CPI Tracker) API 規格文件，紀錄了基本的物價資料增刪查改功能與自動爬蟲功能。
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: 本地開發伺服器
+paths:
+  /api/prices:
+    get:
+      summary: 查詢物價紀錄
+      description: 支援關鍵字搜尋商品名稱，並依日期降序排列。
+      parameters:
+        - name: search
+          in: query
+          description: 搜尋關鍵字
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功取得物價列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PriceRecord'
+    post:
+      summary: 手動新增物價紀錄
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPriceRecord'
+      responses:
+        '201':
+          description: 新增成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  id:
+                    type: integer
+        '400':
+          description: 欄位不完整
+  /api/prices/{id}:
+    put:
+      summary: 修改物價紀錄
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPriceRecord'
+      responses:
+        '200':
+          description: 修改成功
+        '404':
+          description: 找不到該筆紀錄
+    delete:
+      summary: 刪除物價紀錄
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 刪除成功
+        '404':
+          description: 找不到該筆紀錄
+  /api/crawl:
+    post:
+      summary: 執行自動爬蟲
+      description: 從指定網站 (Daybuy) 爬取科克蘭衛生紙價格並自動存入資料庫。
+      responses:
+        '200':
+          description: 爬蟲成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/PriceRecord'
+        '404':
+          description: 抓取不到正確價格
+        '500':
+          description: 伺服器或網路錯誤
+components:
+  schemas:
+    PriceRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        date:
+          type: string
+          format: date
+        name:
+          type: string
+        price:
+          type: number
+        remarks:
+          type: string
+          nullable: true
+    NewPriceRecord:
+      type: object
+      required:
+        - date
+        - name
+        - price
+      properties:
+        date:
+          type: string
+          format: date
+        name:
+          type: string
+        price:
+          type: number
+        remarks:
+          type: string

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>物價自造者：我的專屬 CPI 追蹤器</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 30px auto; padding: 0 20px; background-color: #f5f7fa; color: #333; }
+        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        .card { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #4a5568; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid #cbd5e0; border-radius: 4px; box-sizing: border-box; }
+        button { background: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #2980b9; }
+        .btn-crawl { background: #2ecc71; margin-left: 10px; }
+        .btn-crawl:hover { background: #27ae60; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: white; }
+        th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
+        th { background-color: #edf2f7; color: #4a5568; }
+        tr:nth-child(even) { background-color: #f7fafc; }
+        .btn-edit { background: #f39c12; margin-right: 5px; padding: 5px 10px; font-size: 14px; }
+        .btn-edit:hover { background: #d35400; }
+        .btn-delete { background: #e74c3c; padding: 5px 10px; font-size: 14px; }
+        .btn-delete:hover { background: #c0392b; }
+        .actions { white-space: nowrap; }
+    </style>
+</head>
+<body>
+
+    <h1>📈 物價自造者：我的專屬 CPI 追蹤器</h1>
+    <p>關心身邊物價，用自己的日常數據客觀理解通貨膨脹。</p>
+
+    <div class="card">
+        <h3 id="formTitle">✍️ 新增一筆物價紀錄</h3>
+        <form id="priceForm">
+            <input type="hidden" id="editId">
+            <div class="form-group">
+                <label>查詢價格日期</label>
+                <input type="date" id="date" required>
+            </div>
+            <div class="form-group">
+                <label>商品名稱</label>
+                <input type="text" id="name" placeholder="例如：大薯、麥香奶茶、便當" required>
+            </div>
+            <div class="form-group">
+                <label>商品價格 (新台幣 TWD)</label>
+                <input type="number" id="price" step="0.1" placeholder="例如：65" required>
+            </div>
+            <div class="form-group">
+                <label>備註 (可選)</label>
+                <input type="text" id="remarks" placeholder="例如：某某超市特價、漲價了">
+            </div>
+            <button type="submit" id="submitBtn">確認送出紀錄</button>
+            <button type="button" id="cancelEdit" style="display: none; background: #95a5a6;">取消修改</button>
+            <button type="button" class="btn-crawl" id="btnCrawl">🤖 測試網路自動爬蟲</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>📊 物價走勢圖 (科克蘭衛生紙)</h3>
+        <div style="height: 300px;">
+            <canvas id="priceChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>�🔍 歷史物價追蹤清單</h3>
+        <div class="form-group">
+            <input type="text" id="searchInput" placeholder="💡 輸入關鍵字縮小搜尋範圍... (例如：咖啡)">
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>歷史價格日期</th>
+                    <th>商品名稱</th>
+                    <th>價格 (元)</th>
+                    <th>備註</th>
+                    <th>操作部</th>
+                </tr>
+            </thead>
+            <tbody id="priceTableBody">
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 自動幫日期欄位填上今天的日期
+        document.getElementById('date').value = new Date().toISOString().split('T')[0];
+
+        let priceChart = null;
+        let allData = []; // 儲存所有資料以便編輯時查找
+
+        // 初始化圖表
+        function initChart(data) {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            
+            // 篩選出科克蘭相關的資料並按日期排序
+            const filteredData = data
+                .filter(item => item.name && (item.name.includes('科克蘭') || item.name.includes('KIRKLAND')))
+                .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            const labels = filteredData.map(item => item.date);
+            const prices = filteredData.map(item => item.price);
+
+            if (priceChart) {
+                priceChart.destroy();
+            }
+
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '科克蘭衛生紙價格 (元)',
+                        data: prices,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: '價格 (元)' }
+                        },
+                        x: {
+                            title: { display: true, text: '查詢日期' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 從後端撈取資料並顯示在表格中
+        async function loadPrices(search = '') {
+            try {
+                const response = await fetch(`/api/prices?search=${encodeURIComponent(search)}`);
+                if (!response.ok) throw new Error('載入資料失敗');
+                const data = await response.json();
+                allData = data;
+                
+                // 更新圖表 (使用完整資料進行篩選)
+                initChart(data);
+
+                const tbody = document.getElementById('priceTableBody');
+                tbody.innerHTML = '';
+
+                if (data.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: #718096;">目前沒有任何物價紀錄</td></tr>`;
+                    return;
+                }
+
+                data.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${item.date}</td>
+                        <td>${item.name}</td>
+                        <td>$${item.price} 元</td>
+                        <td>${item.remarks || ''}</td>
+                        <td class="actions">
+                            <button class="btn-edit" onclick="startEdit(${item.id})">修改</button>
+                            <button class="btn-delete" onclick="deletePrice(${item.id})">刪除</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error(err);
+                const tbody = document.getElementById('priceTableBody');
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: #e53e3e;">連線伺服器發生錯誤，請確認後端是否啟動</td></tr>`;
+            }
+        }
+
+        // 開始編輯模式
+        function startEdit(id) {
+            const item = allData.find(d => d.id === id);
+            if (!item) return;
+
+            document.getElementById('editId').value = item.id;
+            document.getElementById('date').value = item.date;
+            document.getElementById('name').value = item.name;
+            document.getElementById('price').value = item.price;
+            document.getElementById('remarks').value = item.remarks || '';
+
+            document.getElementById('formTitle').innerText = '✏️ 修改物價紀錄';
+            document.getElementById('submitBtn').innerText = '確認修改';
+            document.getElementById('cancelEdit').style.display = 'inline-block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // 取消編輯
+        document.getElementById('cancelEdit').addEventListener('click', () => {
+            resetForm();
+        });
+
+        function resetForm() {
+            document.getElementById('editId').value = '';
+            document.getElementById('priceForm').reset();
+            document.getElementById('date').value = new Date().toISOString().split('T')[0];
+            document.getElementById('formTitle').innerText = '✍️ 新增一筆物價紀錄';
+            document.getElementById('submitBtn').innerText = '確認送出紀錄';
+            document.getElementById('cancelEdit').style.display = 'none';
+        }
+
+        // 刪除紀錄
+        async function deletePrice(id) {
+            if (!confirm('確定要刪除這筆紀錄嗎？')) return;
+
+            try {
+                const response = await fetch(`/api/prices/${id}`, { method: 'DELETE' });
+                if (response.ok) {
+                    alert('刪除成功！');
+                    loadPrices(document.getElementById('searchInput').value);
+                } else {
+                    alert('刪除失敗');
+                }
+            } catch (err) {
+                alert('伺服器連線失敗');
+            }
+        }
+
+        // 監聽手動新增/修改的表單
+        document.getElementById('priceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const originalText = btn.innerText;
+            
+            const id = document.getElementById('editId').value;
+            const date = document.getElementById('date').value;
+            const name = document.getElementById('name').value;
+            const price = document.getElementById('price').value;
+            const remarks = document.getElementById('remarks').value;
+
+            btn.disabled = true;
+            btn.innerText = '處理中...';
+
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `/api/prices/${id}` : '/api/prices';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date, name, price: parseFloat(price), remarks })
+                });
+
+                if (response.ok) {
+                    alert(id ? '修改成功！' : '成功記錄一筆物價！');
+                    resetForm();
+                    loadPrices(); // 重新刷新表格
+                } else {
+                    const errorData = await response.json();
+                    alert('操作失敗：' + (errorData.error || '不明錯誤'));
+                }
+            } catch (err) {
+                alert('伺服器連線失敗，請檢查網路或後端狀態');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }
+        });
+
+        // 監聽即時關鍵字查詢
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            loadPrices(e.target.value);
+        });
+
+        // 監聽爬蟲按鈕
+        document.getElementById('btnCrawl').addEventListener('click', async () => {
+            const btn = document.getElementById('btnCrawl');
+            const originalText = btn.innerText;
+            btn.innerText = '正在努力爬取中...';
+            btn.disabled = true;
+            try {
+                const response = await fetch('/api/crawl', { method: 'POST' });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(`【自動爬蟲成功】\n系統已自動為您帶入最新數據：\n商品：${result.data.name}\n價格：$${result.data.price} 元`);
+                    loadPrices();
+                } else {
+                    alert('爬蟲失敗：' + (result.error || '伺服器錯誤'));
+                }
+            } catch (err) {
+                alert('伺服器連線失敗');
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        });
+
+        // 網頁打開時，先載入一次資料
+        loadPrices();
+    </script>
+</body>
+</html>
